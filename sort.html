@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Water Sort Puzzle Visualizer</title>
+  <style>
+    :root{
+      --tube-width:84px;
+      --tube-height:320px;
+      --tube-gap:18px;
+      --ball-size:64px;
+      --bg:#0f1724;
+      --panel:#0b1220;
+      --card:#0f1724;
+      color-scheme: dark;
+    }
+    html,body{height:100%;margin:0;font-family:Inter,ui-sans-serif,system-ui,Segoe UI,Roboto,"Helvetica Neue",Arial;background:linear-gradient(180deg,#071026 0%,#08182b 100%);color:#e6eef6}
+    .wrap{max-width:1100px;margin:28px auto;padding:20px}
+    header{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+    h1{font-size:20px;margin:0}
+    .controls{display:flex;gap:8px;align-items:center}
+    button{background:#1f2937;color:#e6eef6;border:0;padding:8px 12px;border-radius:8px;cursor:pointer}
+    button:active{transform:translateY(1px)}
+    .panel{background:rgba(255,255,255,0.03);padding:12px;border-radius:12px}
+
+    .board{display:flex;flex-wrap:wrap;gap:var(--tube-gap);justify-content:center;padding:18px;background:transparent;border-radius:12px}
+    .tube{width:var(--tube-width);height:var(--tube-height);background:rgba(255,255,255,0.03);border-radius:14px;padding:8px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;box-shadow:0 6px 20px rgba(2,6,23,0.6);position:relative}
+    .tube .slot{width:var(--ball-size);height:var(--ball-size);border-radius:50%;margin-bottom:6px;box-shadow:inset 0 -6px 12px rgba(0,0,0,0.25), 0 4px 12px rgba(2,6,23,0.6);display:flex;align-items:center;justify-content:center;font-weight:700}
+    .tube-label{position:absolute;bottom:-28px;font-size:12px;color:#a7b3c7}
+
+    .info{display:flex;gap:12px;align-items:center}
+    .small{font-size:13px;color:#b9c6d6}
+
+    .controls-row{display:flex;gap:8px;align-items:center}
+    input[type=range]{width:160px}
+
+    footer{margin-top:14px;text-align:center;color:#94a3b8;font-size:13px}
+
+    /* highlight animation */
+    .highlight{outline:3px solid rgba(255,255,255,0.06);box-shadow:0 0 18px rgba(255,255,255,0.02) inset}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Water Sort Puzzle — Visualizer</h1>
+      <div class="controls">
+        <div class="panel controls-row">
+          <button id="btn-play">Play ▶</button>
+          <button id="btn-pause">Pause ⏸</button>
+          <button id="btn-prev">Prev ⬅</button>
+          <button id="btn-next">Next ➡</button>
+          <button id="btn-reset">Reset ⟲</button>
+        </div>
+        <div class="panel" style="display:flex; gap:12px; align-items:center">
+          <div class="small">Speed</div>
+          <input id="speed" type="range" min="100" max="1600" value="600">
+        </div>
+      </div>
+    </header>
+
+    <section class="panel" style="padding:14px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+        <div class="info">
+          <div class="small">Tubes: <strong id="tube-count">14</strong></div>
+          <div class="small">Moves: <strong id="move-count">0</strong></div>
+          <div class="small">Step: <strong id="step-index">0</strong></div>
+        </div>
+        <div class="small">Tip: Click a tube to highlight; use Next/Prev to step through moves.</div>
+      </div>
+
+      <div id="board" class="board" style="margin-top:14px"></div>
+    </section>
+
+    <footer>
+      <div>Made for your puzzle — 1 file. Copy the file and open in any modern browser.</div>
+    </footer>
+  </div>
+
+  <script>
+    // ====== Puzzle data (from your input) ======
+    // Arrays are stored as bottom-to-top: index 0 = bottom, last index = top.
+    const colorKey = {
+      1: "#ffffff",      // White
+      2: "#ff9fc6",      // Pink
+      3: "#ffb86b",      // Orange
+      4: "#66d17a",      // Green
+      5: "#226644",      // Dark Green
+      6: "#d6c89b",      // Tan/Beige
+      7: "#a26ad8",      // Purple
+      8: "#3aa0ff",      // Blue
+      9: "#7fe0ff",      // Cyan/Light Blue
+      10: "#ff6b6b",     // Red
+      11: "#7b1e1e",     // Dark Red/Maroon
+      12: "#d7b7ff"      // Light Purple/Lavender
+    };
+
+    // initial tubes (bottom -> top). last element is the top.
+    const START = [
+        [3,5,4,1],
+        [4,1,6,2],
+        [7,8,7,3],
+        [10,9,4,5],
+        [9,2,11,2],
+        [12,12,9,3],
+        [5,4,12,8],
+        [3,1,5,10],
+        [11,2,7,8],
+        [6,8,6,9],
+        [10,12,1,6],
+        [11,10,7,11],
+        [],           // T13
+        []            // T14
+    ];
+
+    // solution moves found earlier (1-based indices). We'll use zero-based internally.
+    const MOVES = [[3, 13], [9, 14], [3, 9], [3, 14], [9, 3], [5, 9], [12, 5], [12, 3], [2, 9], [6, 13], [10, 6], [10, 2], [10, 14], [7, 14], [2, 10], [11, 10], [11, 2], [11, 7], [11, 12], [6, 11], 
+ [7, 6], [8, 12], [4, 8], [4, 7], [11, 4], [9, 11], [5, 9], [5, 11], [4, 5], [12, 4], 
+ [9, 12], [1, 2], [1, 7], [2, 9], [7, 2], [1, 7], [8, 7], [8, 9], [1, 13], [8, 13]]
+;
+
+    // convert moves to zero-based
+    const moves = MOVES.map(m => [m[0]-1, m[1]-1]);
+
+    // ====== Rendering logic ======
+    const boardEl = document.getElementById('board');
+    const tubeCountEl = document.getElementById('tube-count');
+    const moveCountEl = document.getElementById('move-count');
+    const stepIndexEl = document.getElementById('step-index');
+
+    tubeCountEl.textContent = START.length;
+    moveCountEl.textContent = moves.length;
+
+    let state = JSON.parse(JSON.stringify(START)); // deep copy
+    let step = 0;
+    let playing = false;
+    let timer = null;
+
+    function render() {
+      boardEl.innerHTML = '';
+      state.forEach((tube, idx) => {
+        const t = document.createElement('div');
+        t.className = 'tube';
+        t.dataset.index = idx;
+        // render slots bottom-up: index 0 at bottom, last index at top
+        for (let slot = 3; slot >= 0; slot--){
+          const ball = document.createElement('div');
+          ball.className = 'slot';
+          const colorIdx = (slot < tube.length) ? tube[slot] : null;
+          if (colorIdx !== null) {
+            ball.style.background = colorKey[colorIdx];
+            ball.style.border = (colorIdx===1)?'1px solid rgba(0,0,0,0.12)':'none';
+            ball.textContent = '';
+          } else {
+            ball.style.background = 'transparent';
+            ball.style.border = '2px dashed rgba(255,255,255,0.03)';
+            ball.style.boxShadow = 'none';
+          }
+          t.appendChild(ball);
+        }
+        const lbl = document.createElement('div');
+        lbl.className = 'tube-label';
+        lbl.textContent = 'T' + (idx+1);
+        t.appendChild(lbl);
+        t.addEventListener('click', ()=>{ highlightTarget(idx); });
+        boardEl.appendChild(t);
+      });
+
+      stepIndexEl.textContent = step;
+    }
+
+    function highlightTarget(idx){
+      const node = boardEl.querySelector(`.tube[data-index='${idx}']`);
+      if(!node) return;
+      node.classList.add('highlight');
+      setTimeout(()=>node.classList.remove('highlight'), 500);
+    }
+
+    function doStepForward(){
+      if(step >= moves.length) return false;
+      const [i,j] = moves[step];
+      const src = state[i];
+      const dst = state[j];
+      if(src.length === 0) return false;
+      const color = src[src.length-1];
+      let cnt = 0;
+      for(let k=src.length-1;k>=0;k--){ if(src[k]===color) cnt++; else break; }
+      const space = 4 - dst.length;
+      const moveAmt = Math.min(cnt, space);
+      for(let m=0;m<moveAmt;m++){ dst.push(src.pop()); }
+      step++;
+      render();
+      highlightTarget(i);
+      highlightTarget(j);
+      return true;
+    }
+
+    function doStepBack(){
+      if(step <= 0) return false;
+      const [pi,pj] = moves[step-1];
+      const src = state[pj];
+      const dst = state[pi];
+      if(src.length === 0) return false;
+      const color = src[src.length-1];
+      let cnt = 0;
+      for(let k=src.length-1;k>=0;k--){ if(src[k]===color) cnt++; else break; }
+      const space = 4 - dst.length;
+      const moveAmt = Math.min(cnt, space);
+      for(let m=0;m<moveAmt;m++){ dst.push(src.pop()); }
+      step--; render();
+      highlightTarget(pi); highlightTarget(pj);
+      return true;
+    }
+
+    function play(){
+      if(playing) return;
+      playing = true;
+      const speed = Number(document.getElementById('speed').value);
+      timer = setInterval(()=>{
+        const ok = doStepForward();
+        if(!ok){ pause(); }
+      }, speed);
+    }
+
+    function pause(){
+      playing = false; if(timer) clearInterval(timer); timer = null;
+    }
+
+    function reset(){
+      pause(); state = JSON.parse(JSON.stringify(START)); step = 0; render();
+    }
+
+    // attach controls
+    document.getElementById('btn-play').addEventListener('click', ()=>{ play(); });
+    document.getElementById('btn-pause').addEventListener('click', ()=>{ pause(); });
+    document.getElementById('btn-next').addEventListener('click', ()=>{ doStepForward(); });
+    document.getElementById('btn-prev').addEventListener('click', ()=>{ doStepBack(); });
+    document.getElementById('btn-reset').addEventListener('click', ()=>{ reset(); });
+
+    // init
+    render();
+
+    // keyboard shortcuts
+    window.addEventListener('keydown', (e)=>{
+      if(e.key === 'ArrowRight') doStepForward();
+      if(e.key === 'ArrowLeft') doStepBack();
+      if(e.key === ' ') { e.preventDefault(); if(playing) pause(); else play(); }
+    });
+  </script>
+</body>
+</html>
